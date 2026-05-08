@@ -29,6 +29,54 @@ PIXEL_10_PRO_SPECS = {
     "hardware_concurrency": 8,
 }
 
+PIXEL_5_SPECS = {
+    "width": 393,
+    "height": 851,
+    "device_width": 1080,
+    "device_height": 2340,
+    "pixel_ratio": 2.75,
+    "color_depth": 24,
+    "webgl_vendor": "Qualcomm",
+    "webgl_renderer": "Adreno (TM) 620",
+    "platform": "Linux armv8l",
+    "vendor": "Google Inc.",
+    "connection_type": "4g",
+    "effective_type": "4g",
+    "downlink": 10,
+    "rtt": 130,
+    "max_touch_points": 5,
+    "device_memory": 8,
+    "hardware_concurrency": 8,
+}
+
+DEVICE_SPECS_BY_PROFILE: dict[str, dict] = {
+    "pixel_10_pro": PIXEL_10_PRO_SPECS,
+    "pixel_5_android_11": PIXEL_5_SPECS,
+}
+
+DEVICE_BUILDS_BY_PROFILE: dict[str, list[str]] = {
+    "pixel_10_pro": [
+        "AP4A.250405.002",
+        "AP4A.250305.001",
+        "AP4A.250205.004",
+        "AP3A.250105.002",
+        "AP3A.241205.015",
+    ],
+    "pixel_5_android_11": [
+        "RQ3A.211001.001",
+        "RQ3A.210805.001.A1",
+        "RQ3A.210605.005",
+        "RQ2A.210405.005",
+        "RQ2A.210305.006",
+        "RQ1A.210205.004",
+        "RQ1A.210105.003",
+    ],
+}
+
+DEVICE_SPECS: dict = DEVICE_SPECS_BY_PROFILE.get(
+    config.DEVICE_PROFILE_NAME, PIXEL_10_PRO_SPECS
+)
+
 
 def luhn_checksum(number: str) -> int:
     """Return the Luhn check digit for a numeric string."""
@@ -75,14 +123,11 @@ def random_chrome_patch() -> str:
 
 
 def random_build_id() -> str:
-    """Pick a realistic BUILD_ID from a pool of known Pixel 10 Pro builds."""
-    builds = [
-        "AP4A.250405.002",
-        "AP4A.250305.001",
-        "AP4A.250205.004",
-        "AP3A.250105.002",
-        "AP3A.241205.015",
-    ]
+    """Pick a realistic BUILD_ID from the pool that matches the active device."""
+    builds = DEVICE_BUILDS_BY_PROFILE.get(
+        config.DEVICE_PROFILE_NAME,
+        DEVICE_BUILDS_BY_PROFILE["pixel_10_pro"],
+    )
     return random.choice(builds)
 
 
@@ -217,7 +262,9 @@ class DeviceProfile:
 
     def navigator_overrides_js(self) -> str:
         """Return JavaScript to inject navigator/screen spoofs via CDP."""
-        specs = PIXEL_10_PRO_SPECS
+        specs = DEVICE_SPECS_BY_PROFILE.get(
+            config.DEVICE_PROFILE_NAME, PIXEL_10_PRO_SPECS
+        )
         brands_json = json.dumps(self.user_agent_brands())
         metadata_json = json.dumps(self.user_agent_high_entropy_values())
         locale_languages_json = json.dumps([self.locale, "en"])
@@ -502,4 +549,13 @@ def create_device_profile(
     )
 
 
-__all__ = ["DeviceProfile", "PIXEL_10_PRO_SPECS", "create_device_profile"]
+__all__ = [
+    "DeviceProfile",
+    "DEVICE_BUILDS_BY_PROFILE",
+    "DEVICE_SPECS",
+    "DEVICE_SPECS_BY_PROFILE",
+    "PIXEL_10_PRO_SPECS",
+    "PIXEL_5_SPECS",
+    "create_device_profile",
+    "resolve_emulation_settings",
+]

@@ -35,7 +35,7 @@ from core.proxy_manager import (
     mask_proxy_url,
     parse_proxy_parts,
 )
-from services.device_simulator import DeviceProfile, PIXEL_10_PRO_SPECS as SPECS
+from services.device_simulator import DEVICE_SPECS as SPECS, DeviceProfile
 from services.proxy_forwarder import AuthenticatedProxyForwarder
 from services.wit_ai_solver import (
     AudioCaptchaSolveError,

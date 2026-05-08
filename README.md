@@ -8,6 +8,7 @@ AutoPixel is a Telegram bot that simulates a Pixel 10 Pro session, signs in to a
 ## Highlights
 
 - Simulates a fresh Pixel 10 Pro device profile for each login session
+- Optional legacy **Pixel 5 (Android 11)** profile for older device fingerprints (`DEVICE_PROFILE=pixel_5_android_11`)
 - Supports Gmail and Google Workspace accounts
 - Handles Google sign-in with TOTP / authenticator flow support
 - Can attempt audio captcha solving through `wit.ai` before falling back to manual verification
@@ -204,6 +205,23 @@ Notes:
 - set `WIT_AI_TOKEN` if you want AutoPixel to try solving audio captcha challenges automatically
 - if you need help getting a Wit.ai token, see `HOW TO GET A WIT.AI API KEY.txt`
 - `PROXY_DIAGNOSTICS_VERIFY_SSL=0` lets `/ip` and proxy precheck tolerate self-signed/intercepted TLS chains often seen on proxy routes
+
+### Optional device profile
+
+By default, AutoPixel simulates a **Pixel 10 Pro on Android 16**. To switch to the legacy **Pixel 5 (Android 11)** profile, set in `.env`:
+
+```env
+DEVICE_PROFILE=pixel_5_android_11
+```
+
+Available presets:
+
+| Preset | Device | Android | SDK | Use case |
+|---|---|---|---|---|
+| `pixel_10_pro` (default) | Pixel 10 Pro | 16 | 36 | Modern fingerprint, recommended for new flows |
+| `pixel_5_android_11` | Pixel 5 | 11 | 30 | Legacy fingerprint when an older device is needed |
+
+Switching the profile changes the simulated user-agent, build IDs, screen metrics, WebGL renderer, RAM, and Client Hints headers so the session matches the chosen device.
 
 ### Optional proxies
 
