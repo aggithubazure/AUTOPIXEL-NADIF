@@ -30,11 +30,11 @@ INLINE_PANEL_FOOTER_KEY = "menu_panel_refresh"
 
 I18N = {
     "en": {
-        "start_title": "🚀 Pixel 10 Pro Google One Assistant",
+        "start_title": "🚀 Pixel Google One Assistant",
         "start_header_caption": "🚀 Pixel Control Panel • Created by Nadif Rizky",
         "start_subtitle": "⌬ Pixel Control Panel • Google One • Modern Offer Deck",
         "start_body": (
-            "A modern Telegram control deck for secure Google sign-in, Pixel 10 Pro "
+            "A modern Telegram control deck for secure Google sign-in, Pixel "
             "device simulation, proxy-aware networking, and live Gemini offer checks."
         ),
         "start_deck_intro": "Use the control deck below to launch login, diagnostics, proxy tools, and offer checks in one tap.",
@@ -43,7 +43,7 @@ I18N = {
         "creator_line": "Created by Nadif Rizky",
         "quick_actions_title": (
             "<b>⌬ Pixel Control Panel</b>\n"
-            "<code>Pixel 10 Pro • Google One • Modern Offer Deck</code>\n"
+            "<code>Pixel • Google One • Modern Offer Deck</code>\n"
             "<i>Created by Nadif Rizky</i>\n\n"
             "Tap a module below to continue."
         ),
@@ -77,7 +77,7 @@ I18N = {
         "offer_capacity_busy": "🔄 The system is currently at maximum capacity. Please try again in a minute.",
         "offer_starting_secure_check": (
             "⏳ Starting secure check...\n"
-            "Launching Pixel 10 Pro simulation and signing in.\n"
+            "Launching Pixel device simulation and signing in.\n"
             "Chrome should appear within 10-20 seconds.\n"
             "The full check can still take 1-3 minutes if Google asks for extra verification."
         ),
@@ -85,7 +85,7 @@ I18N = {
             "🔓 Authenticated proxy detected.\n"
             "Opening Chrome in visible mode immediately so this session does not waste time on a hidden retry."
         ),
-        "offer_retry_note_fresh": "minting a fresh Pixel 10 Pro profile and trying again.",
+        "offer_retry_note_fresh": "minting a fresh Pixel device profile and trying again.",
         "offer_retry_note_same": "reusing the same session device and trying again.",
         "offer_retry_attempt": "🔄 Retry {attempt}/{max_attempts}: {note}",
         "offer_proxy_precheck_failed_rotate": (
@@ -124,7 +124,7 @@ I18N = {
         "offer_proxy_transport_rotating": "⚠️ Proxy transport issue detected. Rotating proxy...",
         "offer_runtime_network_rotating": "⚠️ Runtime network issue detected. Rotating proxy...",
         "offer_not_found_retrying": "⏳ Offer not found yet. Retrying in {delay} seconds...",
-        "offer_retry_device_fresh": "a fresh Pixel 10 Pro profile",
+        "offer_retry_device_fresh": "a fresh Pixel device profile",
         "offer_retry_device_same": "the same session device",
         "offer_starting_retry": (
             "🔄 Starting retry {next_attempt}/{max_attempts}: "
@@ -241,7 +241,7 @@ I18N = {
             "Optional format: <code>password|totp_secret</code>"
         ),
         "login_saved_title": "✅ [·] Session Ready",
-        "login_saved_body": "Credentials saved successfully. A fresh Pixel 10 Pro profile is ready for this session.",
+        "login_saved_body": "Credentials saved successfully. A fresh Pixel device profile is ready for this session.",
         "login_saved_totp": "🔑 TOTP secret detected. Auto-2FA is available for this session.",
         "login_saved_next": "Next step: run <code>/check_offer</code>",
         "login_cancelled": "❌ Login flow cancelled.",
@@ -332,12 +332,12 @@ I18N = {
         "menu_panel_refresh": "🪄 Open Dashboard",
     },
     "id": {
-        "start_title": "🚀 Pixel 10 Pro Google One Assistant",
+        "start_title": "🚀 Pixel Google One Assistant",
         "start_header_caption": "🚀 Panel Kontrol Pixel • Created by Nadif Rizky",
         "start_subtitle": "⌬ Panel Kontrol Pixel • Google One • Deck Offer Modern",
         "start_body": (
             "Panel kontrol Telegram modern untuk login Google yang aman, simulasi "
-            "device Pixel 10 Pro, jaringan berbasis proxy, dan pengecekan offer Gemini secara live."
+            "device Pixel, jaringan berbasis proxy, dan pengecekan offer Gemini secara live."
         ),
         "start_deck_intro": "Gunakan control deck di bawah untuk membuka login, diagnostik, alat proxy, dan pengecekan offer hanya dengan satu tap.",
         "start_tip": "💡 Mendukung akun Gmail dan Google Workspace.",
@@ -345,7 +345,7 @@ I18N = {
         "creator_line": "Dibuat oleh Nadif Rizky",
         "quick_actions_title": (
             "<b>⌬ Pixel Control Panel</b>\n"
-            "<code>Pixel 10 Pro • Google One • Deck Offer Modern</code>\n"
+            "<code>Pixel • Google One • Deck Offer Modern</code>\n"
             "<i>Created by Nadif Rizky</i>\n\n"
             "Pilih modul di bawah untuk melanjutkan."
         ),
@@ -381,7 +381,7 @@ I18N = {
         ),
         "offer_starting_secure_check": (
             "⏳ Memulai pengecekan aman...\n"
-            "Menjalankan simulasi Pixel 10 Pro dan login.\n"
+            "Menjalankan simulasi device Pixel dan login.\n"
             "Chrome biasanya akan muncul dalam 10-20 detik.\n"
             "Pengecekan penuh masih bisa memakan 1-3 menit jika Google meminta verifikasi tambahan."
         ),
@@ -389,7 +389,7 @@ I18N = {
             "🔓 Proxy dengan autentikasi terdeteksi.\n"
             "Chrome akan langsung dibuka dalam mode terlihat agar sesi ini tidak membuang waktu pada retry tersembunyi."
         ),
-        "offer_retry_note_fresh": "membuat profil Pixel 10 Pro baru dan mencoba lagi.",
+        "offer_retry_note_fresh": "membuat profil device Pixel baru dan mencoba lagi.",
         "offer_retry_note_same": "menggunakan device sesi yang sama dan mencoba lagi.",
         "offer_retry_attempt": "🔄 Percobaan ulang {attempt}/{max_attempts}: {note}",
         "offer_proxy_precheck_failed_rotate": (
@@ -434,7 +434,7 @@ I18N = {
         "offer_not_found_retrying": (
             "⏳ Offer belum ditemukan. Mencoba lagi dalam {delay} detik..."
         ),
-        "offer_retry_device_fresh": "profil Pixel 10 Pro baru",
+        "offer_retry_device_fresh": "profil device Pixel baru",
         "offer_retry_device_same": "device sesi yang sama",
         "offer_starting_retry": (
             "🔄 Memulai percobaan ulang {next_attempt}/{max_attempts}: "
@@ -551,7 +551,7 @@ I18N = {
             "Format opsional: <code>password|totp_secret</code>"
         ),
         "login_saved_title": "✅ [·] Sesi Siap",
-        "login_saved_body": "Kredensial berhasil disimpan. Profil Pixel 10 Pro baru sudah siap untuk sesi ini.",
+        "login_saved_body": "Kredensial berhasil disimpan. Profil device Pixel baru sudah siap untuk sesi ini.",
         "login_saved_totp": "🔑 TOTP terdeteksi. Auto-2FA tersedia untuk sesi ini.",
         "login_saved_next": "Langkah berikutnya: jalankan <code>/check_offer</code>",
         "login_cancelled": "❌ Alur login dibatalkan.",

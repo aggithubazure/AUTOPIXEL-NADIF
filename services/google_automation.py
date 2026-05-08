@@ -30,12 +30,11 @@ from selenium.webdriver.support.ui import WebDriverWait
 
 import config
 from core.proxy_manager import (
-    apply_brightdata_session,
-    is_brightdata_proxy,
     mask_proxy_url,
     parse_proxy_parts,
+    resolve_runtime_proxy_url,
 )
-from services.device_simulator import DeviceProfile, PIXEL_10_PRO_SPECS as SPECS
+from services.device_simulator import DEVICE_SPECS as SPECS, DeviceProfile
 from services.proxy_forwarder import AuthenticatedProxyForwarder
 from services.wit_ai_solver import (
     AudioCaptchaSolveError,
@@ -198,7 +197,7 @@ def build_driver(
     proxy_session_token: str | None = None,
 ) -> webdriver.Chrome:
     """Return a Chrome WebDriver configured for the device profile."""
-    runtime_proxy_url = apply_brightdata_session(proxy_url, proxy_session_token)
+    runtime_proxy_url = resolve_runtime_proxy_url(proxy_url, proxy_session_token)
     options = uc.ChromeOptions()
     options.page_load_strategy = "eager"
     headless_enabled = config.HEADLESS if headless is None else headless
@@ -468,8 +467,8 @@ def _looks_like_privacy_error_snapshot(snapshot: dict[str, str]) -> bool:
     )
 
 
-def _looks_like_brightdata_policy_block_snapshot(snapshot: dict[str, str]) -> bool:
-    """Return True when the page body looks like a Bright Data access-policy block."""
+def _looks_like_proxy_policy_block_snapshot(snapshot: dict[str, str]) -> bool:
+    """Return True when the page body looks like a generic proxy access-policy block."""
     title = (snapshot.get("title") or "").lower()
     excerpt = (snapshot.get("excerpt") or "").lower()
     url = (snapshot.get("url") or "").lower()
@@ -477,12 +476,11 @@ def _looks_like_brightdata_policy_block_snapshot(snapshot: dict[str, str]) -> bo
     return any(
         marker in combined
         for marker in (
-            "residential failed (bad_endpoint)",
             "bad_endpoint",
-            "immediate residential",
-            "full residential access",
+            "policy_20130",
+            "policy_20140",
             "access mode",
-            "docs.brightdata.com",
+            "blocked by proxy",
         )
     )
 
@@ -1056,24 +1054,15 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
             snapshot["title"] or "-",
             snapshot["excerpt"] or "-",
         )
-        if _looks_like_brightdata_policy_block_snapshot(snapshot):
+        if _looks_like_proxy_policy_block_snapshot(snapshot):
             summary = _summarize_snapshot_excerpt(snapshot)
             raise GoogleAutomationError(
-                "Bright Data blocked this Google target for your Residential Immediate-Access zone "
-                "(no KYC / no Full Access). This page is coming from the proxy provider, not from Google. "
-                "Complete Bright Data KYC / Full Access, or switch this workflow to ISP, Data Center, "
-                "or direct mode."
+                "The proxy provider blocked this Google target by policy. This page is coming "
+                "from the proxy, not from Google. Try rotating to a different proxy from the "
+                "pool or switching to direct mode."
                 + (f" Detail: {summary}" if summary else "")
             ) from exc
         if _looks_like_privacy_error_snapshot(snapshot):
-            if _is_brightdata_proxy(proxy_url):
-                raise GoogleAutomationError(
-                    "Chrome stopped at a privacy/certificate error for the Bright Data proxy. "
-                    "Bright Data Residential browser sessions usually require either their SSL "
-                    "certificate to be installed in Chrome or Bright Data KYC/Full Access. "
-                    "For browser automation, Bright Data recommends ISP/Data Center proxies. "
-                    "If you only want a temporary test bypass, set BROWSER_IGNORE_CERT_ERRORS=1."
-                ) from exc
             raise GoogleAutomationError(
                 "Chrome stopped at a privacy/certificate error before the Google sign-in page loaded. "
                 "Check the proxy certificate chain or, for temporary testing only, set "
@@ -1509,7 +1498,7 @@ def start_login(
     proxy_session_token: str | None = None,
 ) -> tuple:
     """Start login process and return (driver, status)."""
-    runtime_proxy_url = apply_brightdata_session(proxy_url, proxy_session_token)
+    runtime_proxy_url = resolve_runtime_proxy_url(proxy_url, proxy_session_token)
     proxy_requires_auth = _proxy_requires_auth(runtime_proxy_url)
     effective_headless = config.HEADLESS if headless is None else headless
     if (

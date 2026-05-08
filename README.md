@@ -1,13 +1,14 @@
 # AutoPixel
 
-**Pixel 10 Pro Google One Assistant**  
+**Pixel Google One Assistant**  
 Created by **Nadif Rizky**
 
-AutoPixel is a Telegram bot that simulates a Pixel 10 Pro session, signs in to a Google account, checks Google One / Gemini offer availability, and gives you a modern control panel for session, proxy, IP, and diagnostic tools.
+AutoPixel is a Telegram bot that simulates a Pixel device session (Pixel 5 / Android 11 by default, with Pixel 4a, 6, 7 Pro, 8 Pro, and 10 Pro also available), signs in to a Google account, checks Google One / Gemini offer availability, and gives you a modern control panel for session, proxy, IP, and diagnostic tools.
 
 ## Highlights
 
-- Simulates a fresh Pixel 10 Pro device profile for each login session
+- Simulates a fresh Pixel device profile for each login session (defaults to Pixel 5 / Android 11)
+- Switchable device profiles for Pixel 4a, Pixel 5, Pixel 6, Pixel 7 Pro, Pixel 8 Pro, and Pixel 10 Pro via `DEVICE_PROFILE`
 - Supports Gmail and Google Workspace accounts
 - Handles Google sign-in with TOTP / authenticator flow support
 - Can attempt audio captcha solving through `wit.ai` before falling back to manual verification
@@ -205,6 +206,27 @@ Notes:
 - if you need help getting a Wit.ai token, see `HOW TO GET A WIT.AI API KEY.txt`
 - `PROXY_DIAGNOSTICS_VERIFY_SSL=0` lets `/ip` and proxy precheck tolerate self-signed/intercepted TLS chains often seen on proxy routes
 
+### Optional device profile
+
+By default, AutoPixel simulates a **Pixel 5 on Android 11**, since the Pixel 10 Pro / Android 16 fingerprint can be flagged more aggressively by Google's bot detection. To switch to another device, set the preset in `.env`:
+
+```env
+DEVICE_PROFILE=pixel_10_pro
+```
+
+Available presets:
+
+| Preset | Device | Android | SDK | GPU | RAM |
+|---|---|---|---|---|---|
+| `pixel_5_android_11` (default) | Pixel 5 | 11 | 30 | Adreno 620 | 8 GB |
+| `pixel_4a` | Pixel 4a | 13 | 33 | Adreno 618 | 6 GB |
+| `pixel_6` | Pixel 6 | 14 | 34 | Mali-G78 MP20 | 8 GB |
+| `pixel_7_pro` | Pixel 7 Pro | 14 | 34 | Mali-G710 MP7 | 12 GB |
+| `pixel_8_pro` | Pixel 8 Pro | 14 | 34 | Mali-G715 Immortalis MP7 | 12 GB |
+| `pixel_10_pro` | Pixel 10 Pro | 16 | 36 | Adreno 750 | 12 GB |
+
+Switching the profile changes the simulated user-agent, build IDs, screen metrics, WebGL renderer, RAM, and Client Hints headers so the session matches the chosen device. An unknown value logs a warning and falls back to the default Pixel 5 / Android 11 profile.
+
 ### Optional proxies
 
 The repository includes a sample `proxies.txt` in the project root.
@@ -253,7 +275,7 @@ Bot: Email accepted. Now send your password
 
 You: yourpassword
 Bot: ✅ Session Ready
-Bot: A fresh Pixel 10 Pro profile is ready for this session
+Bot: A fresh Pixel device profile is ready for this session
 
 You: /check_offer
 Bot: ⏳ Starting secure check...

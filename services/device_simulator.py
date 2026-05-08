@@ -29,6 +29,167 @@ PIXEL_10_PRO_SPECS = {
     "hardware_concurrency": 8,
 }
 
+PIXEL_8_PRO_SPECS = {
+    "width": 412,
+    "height": 883,
+    "device_width": 1344,
+    "device_height": 2992,
+    "pixel_ratio": 3.0,
+    "color_depth": 24,
+    "webgl_vendor": "ARM",
+    "webgl_renderer": "Mali-G715-Immortalis MP7",
+    "platform": "Linux armv8l",
+    "vendor": "Google Inc.",
+    "connection_type": "4g",
+    "effective_type": "4g",
+    "downlink": 10,
+    "rtt": 110,
+    "max_touch_points": 5,
+    "device_memory": 12,
+    "hardware_concurrency": 9,
+}
+
+PIXEL_7_PRO_SPECS = {
+    "width": 412,
+    "height": 892,
+    "device_width": 1440,
+    "device_height": 3120,
+    "pixel_ratio": 3.5,
+    "color_depth": 24,
+    "webgl_vendor": "ARM",
+    "webgl_renderer": "Mali-G710 MP7",
+    "platform": "Linux armv8l",
+    "vendor": "Google Inc.",
+    "connection_type": "4g",
+    "effective_type": "4g",
+    "downlink": 10,
+    "rtt": 115,
+    "max_touch_points": 5,
+    "device_memory": 12,
+    "hardware_concurrency": 8,
+}
+
+PIXEL_6_SPECS = {
+    "width": 412,
+    "height": 915,
+    "device_width": 1080,
+    "device_height": 2400,
+    "pixel_ratio": 2.625,
+    "color_depth": 24,
+    "webgl_vendor": "ARM",
+    "webgl_renderer": "Mali-G78 MP20",
+    "platform": "Linux armv8l",
+    "vendor": "Google Inc.",
+    "connection_type": "4g",
+    "effective_type": "4g",
+    "downlink": 10,
+    "rtt": 120,
+    "max_touch_points": 5,
+    "device_memory": 8,
+    "hardware_concurrency": 8,
+}
+
+PIXEL_5_SPECS = {
+    "width": 393,
+    "height": 851,
+    "device_width": 1080,
+    "device_height": 2340,
+    "pixel_ratio": 2.75,
+    "color_depth": 24,
+    "webgl_vendor": "Qualcomm",
+    "webgl_renderer": "Adreno (TM) 620",
+    "platform": "Linux armv8l",
+    "vendor": "Google Inc.",
+    "connection_type": "4g",
+    "effective_type": "4g",
+    "downlink": 10,
+    "rtt": 130,
+    "max_touch_points": 5,
+    "device_memory": 8,
+    "hardware_concurrency": 8,
+}
+
+PIXEL_4A_SPECS = {
+    "width": 393,
+    "height": 851,
+    "device_width": 1080,
+    "device_height": 2340,
+    "pixel_ratio": 2.75,
+    "color_depth": 24,
+    "webgl_vendor": "Qualcomm",
+    "webgl_renderer": "Adreno (TM) 618",
+    "platform": "Linux armv8l",
+    "vendor": "Google Inc.",
+    "connection_type": "4g",
+    "effective_type": "4g",
+    "downlink": 10,
+    "rtt": 140,
+    "max_touch_points": 5,
+    "device_memory": 6,
+    "hardware_concurrency": 8,
+}
+
+DEVICE_SPECS_BY_PROFILE: dict[str, dict] = {
+    "pixel_10_pro": PIXEL_10_PRO_SPECS,
+    "pixel_8_pro": PIXEL_8_PRO_SPECS,
+    "pixel_7_pro": PIXEL_7_PRO_SPECS,
+    "pixel_6": PIXEL_6_SPECS,
+    "pixel_5_android_11": PIXEL_5_SPECS,
+    "pixel_4a": PIXEL_4A_SPECS,
+}
+
+DEVICE_BUILDS_BY_PROFILE: dict[str, list[str]] = {
+    "pixel_10_pro": [
+        "AP4A.250405.002",
+        "AP4A.250305.001",
+        "AP4A.250205.004",
+        "AP3A.250105.002",
+        "AP3A.241205.015",
+    ],
+    "pixel_8_pro": [
+        "UQ1A.240205.002",
+        "UQ1A.240105.002",
+        "UQ1A.231215.005",
+        "UD1A.231105.004",
+        "UD1A.230803.041",
+    ],
+    "pixel_7_pro": [
+        "UQ1A.240205.002.B1",
+        "UQ1A.240105.002",
+        "UQ1A.231215.005",
+        "UD1A.231105.004",
+        "UD1A.230803.041",
+    ],
+    "pixel_6": [
+        "UQ1A.240205.004",
+        "UQ1A.240105.004",
+        "UQ1A.231215.005",
+        "UD1A.231105.004",
+        "UD1A.230803.041",
+    ],
+    "pixel_5_android_11": [
+        "RQ3A.211001.001",
+        "RQ3A.210805.001.A1",
+        "RQ3A.210605.005",
+        "RQ2A.210405.005",
+        "RQ2A.210305.006",
+        "RQ1A.210205.004",
+        "RQ1A.210105.003",
+    ],
+    "pixel_4a": [
+        "TQ3A.230901.001",
+        "TQ3A.230805.001",
+        "TQ3A.230705.001.B4",
+        "TQ2A.230505.002",
+        "TQ2A.230405.003.E1",
+        "TQ1A.230205.002",
+    ],
+}
+
+DEVICE_SPECS: dict = DEVICE_SPECS_BY_PROFILE.get(
+    config.DEVICE_PROFILE_NAME, PIXEL_10_PRO_SPECS
+)
+
 
 def luhn_checksum(number: str) -> int:
     """Return the Luhn check digit for a numeric string."""
@@ -75,14 +236,11 @@ def random_chrome_patch() -> str:
 
 
 def random_build_id() -> str:
-    """Pick a realistic BUILD_ID from a pool of known Pixel 10 Pro builds."""
-    builds = [
-        "AP4A.250405.002",
-        "AP4A.250305.001",
-        "AP4A.250205.004",
-        "AP3A.250105.002",
-        "AP3A.241205.015",
-    ]
+    """Pick a realistic BUILD_ID from the pool that matches the active device."""
+    builds = DEVICE_BUILDS_BY_PROFILE.get(
+        config.DEVICE_PROFILE_NAME,
+        DEVICE_BUILDS_BY_PROFILE["pixel_10_pro"],
+    )
     return random.choice(builds)
 
 
@@ -217,7 +375,9 @@ class DeviceProfile:
 
     def navigator_overrides_js(self) -> str:
         """Return JavaScript to inject navigator/screen spoofs via CDP."""
-        specs = PIXEL_10_PRO_SPECS
+        specs = DEVICE_SPECS_BY_PROFILE.get(
+            config.DEVICE_PROFILE_NAME, PIXEL_10_PRO_SPECS
+        )
         brands_json = json.dumps(self.user_agent_brands())
         metadata_json = json.dumps(self.user_agent_high_entropy_values())
         locale_languages_json = json.dumps([self.locale, "en"])
@@ -502,4 +662,13 @@ def create_device_profile(
     )
 
 
-__all__ = ["DeviceProfile", "PIXEL_10_PRO_SPECS", "create_device_profile"]
+__all__ = [
+    "DeviceProfile",
+    "DEVICE_BUILDS_BY_PROFILE",
+    "DEVICE_SPECS",
+    "DEVICE_SPECS_BY_PROFILE",
+    "PIXEL_10_PRO_SPECS",
+    "PIXEL_5_SPECS",
+    "create_device_profile",
+    "resolve_emulation_settings",
+]

@@ -16,16 +16,14 @@ import httpx
 
 import config
 from core.proxy_manager import (
-    apply_brightdata_session,
-    is_brightdata_proxy,
     mask_proxy_url,
     normalize_proxy_url,
     parse_proxy_parts,
+    resolve_runtime_proxy_url,
 )
 
 IP_API_URL = "https://ipwho.is/"
 GOOGLE_SIGNIN_PROBE_URL = "https://accounts.google.com/signin/v2/identifier"
-BRIGHTDATA_PROXY_TEST_URL = "https://geo.brdtest.com/welcome.txt"
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +69,8 @@ def _format_probe_error(prefix: str, exc: Exception) -> RuntimeError:
         or "policy_20140" in lowered
     ):
         return RuntimeError(
-            f"{prefix}: Bright Data residential policy blocked this target "
-            "(`bad_endpoint`). Complete Bright Data KYC for Full access, "
-            "or switch to ISP/DataCenter/direct mode."
+            f"{prefix}: The proxy provider blocked this destination by policy. "
+            "Try a different proxy from the pool or switch to direct mode."
         )
     return RuntimeError(f"{prefix}: {exc}")
 
@@ -96,12 +93,7 @@ def _build_ssl_context(proxy_url: str | None) -> ssl.SSLContext:
 
 def _resolve_probe_target(proxy_url: str | None) -> tuple[str, tuple[str, ...], str]:
     """Pick a provider-safe probe URL for the current proxy route."""
-    if is_brightdata_proxy(proxy_url):
-        return (
-            BRIGHTDATA_PROXY_TEST_URL,
-            ("geo.brdtest.com",),
-            "Bright Data proxy test endpoint",
-        )
+    del proxy_url  # AutoPixel is proxy provider agnostic; always probe Google.
     return (
         GOOGLE_SIGNIN_PROBE_URL,
         ("accounts.google.com", ".google.com"),
@@ -186,7 +178,7 @@ def inspect_connection(
     proxy_session_token: str | None = None,
 ) -> dict[str, str]:
     """Return masked proxy info plus public IP and geo summary."""
-    runtime_proxy_url = apply_brightdata_session(proxy_url, proxy_session_token)
+    runtime_proxy_url = resolve_runtime_proxy_url(proxy_url, proxy_session_token)
     try:
         payload = _open_json_with_httpx(IP_API_URL, runtime_proxy_url, timeout=15)
     except Exception as exc:
@@ -314,7 +306,7 @@ def probe_google_signin(
     proxy_session_token: str | None = None,
 ) -> dict[str, str | float | int]:
     """Return a quick reachability check for the current proxy route."""
-    runtime_proxy_url = apply_brightdata_session(proxy_url, proxy_session_token)
+    runtime_proxy_url = resolve_runtime_proxy_url(proxy_url, proxy_session_token)
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

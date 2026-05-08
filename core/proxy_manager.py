@@ -88,51 +88,25 @@ def parse_proxy_parts(proxy_url: str) -> dict[str, str | int | None]:
     }
 
 
-def is_brightdata_proxy(proxy_url: str | None) -> bool:
-    """Return True when the proxy appears to use Bright Data credentials/hosts."""
+def resolve_runtime_proxy_url(
+    proxy_url: str | None,
+    proxy_session_token: str | None = None,
+) -> str | None:
+    """Return the proxy URL that should actually be used at runtime.
+
+    The ``proxy_session_token`` argument is accepted for backward compatibility
+    with callers that want to thread a per-Telegram-chat sticky-session token
+    through the automation stack. It is currently unused: AutoPixel is proxy
+    provider agnostic, so the token is not injected into the proxy URL. Custom
+    sticky-session schemes can be added back here per provider if needed.
+    """
+    del proxy_session_token  # currently unused; kept for API stability
     if not proxy_url:
-        return False
-
-    try:
-        proxy = parse_proxy_parts(proxy_url)
-    except Exception:
-        return False
-
-    host = str(proxy.get("host") or "").lower()
-    username = str(proxy.get("username") or "").lower()
-    return (
-        host.endswith("brd.superproxy.io")
-        or host.endswith("lum-superproxy.io")
-        or username.startswith("brd-")
-    )
-
-
-def apply_brightdata_session(proxy_url: str | None, session_token: str | None = None) -> str | None:
-    """Inject a Bright Data `-session-...` username suffix when configured."""
-    if (
-        not proxy_url
-        or not config.BRIGHTDATA_STICKY_SESSION_ENABLED
-        or not session_token
-        or not is_brightdata_proxy(proxy_url)
-    ):
         return proxy_url
-
-    proxy = parse_proxy_parts(proxy_url)
-    username = str(proxy.get("username") or "")
-    if not username or "-session-" in username.lower():
+    try:
         return normalize_proxy_url(proxy_url)
-
-    token = "".join(ch for ch in str(session_token).lower() if ch.isalnum())[:24]
-    if not token:
-        return normalize_proxy_url(proxy_url)
-
-    auth = quote(f"{username}-session-{token}", safe="")
-    password = quote(str(proxy.get("password") or ""), safe="")
-    password_part = f":{password}" if proxy.get("password") is not None else ""
-    return (
-        f"{proxy['scheme']}://{auth}{password_part}@"
-        f"{proxy['host']}:{proxy['port']}"
-    )
+    except Exception:
+        return proxy_url
 
 
 class ProxyManager:

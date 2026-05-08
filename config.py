@@ -79,15 +79,93 @@ BOT_HEADER_MEDIA_URL = _env_text(
     str(Path(__file__).resolve().parent / "assets" / "telegram" / "pixel-header.png"),
 )
 
-# ── Device specs – Google Pixel 10 Pro (Android 16) ──────────────────────────
-DEVICE_MODEL = "Pixel 10 Pro"
-DEVICE_BRAND = "google"
-DEVICE_MANUFACTURER = "Google"
-ANDROID_VERSION = "16"
-ANDROID_SDK = "36"
-BUILD_ID = "AP4A.250405.002"
-DEVICE_ACCEPT_LANGUAGE = "en-US,en;q=0.9"
-DEVICE_LOCALE = "en-US"
+# ── Device specs – Available device profiles ────────────────────────────────
+# Each preset describes a stock Pixel build that the bot can simulate.
+# Pick one with the DEVICE_PROFILE env var (default: pixel_10_pro).
+DEVICE_PRESETS: dict[str, dict[str, str]] = {
+    "pixel_10_pro": {
+        "model": "Pixel 10 Pro",
+        "brand": "google",
+        "manufacturer": "Google",
+        "android_version": "16",
+        "android_sdk": "36",
+        "build_id": "AP4A.250405.002",
+        "accept_language": "en-US,en;q=0.9",
+        "locale": "en-US",
+    },
+    "pixel_8_pro": {
+        "model": "Pixel 8 Pro",
+        "brand": "google",
+        "manufacturer": "Google",
+        "android_version": "14",
+        "android_sdk": "34",
+        "build_id": "UQ1A.240205.002",
+        "accept_language": "en-US,en;q=0.9",
+        "locale": "en-US",
+    },
+    "pixel_7_pro": {
+        "model": "Pixel 7 Pro",
+        "brand": "google",
+        "manufacturer": "Google",
+        "android_version": "14",
+        "android_sdk": "34",
+        "build_id": "UQ1A.240205.002.B1",
+        "accept_language": "en-US,en;q=0.9",
+        "locale": "en-US",
+    },
+    "pixel_6": {
+        "model": "Pixel 6",
+        "brand": "google",
+        "manufacturer": "Google",
+        "android_version": "14",
+        "android_sdk": "34",
+        "build_id": "UQ1A.240205.004",
+        "accept_language": "en-US,en;q=0.9",
+        "locale": "en-US",
+    },
+    "pixel_5_android_11": {
+        "model": "Pixel 5",
+        "brand": "google",
+        "manufacturer": "Google",
+        "android_version": "11",
+        "android_sdk": "30",
+        "build_id": "RQ3A.211001.001",
+        "accept_language": "en-US,en;q=0.9",
+        "locale": "en-US",
+    },
+    "pixel_4a": {
+        "model": "Pixel 4a",
+        "brand": "google",
+        "manufacturer": "Google",
+        "android_version": "13",
+        "android_sdk": "33",
+        "build_id": "TQ3A.230901.001",
+        "accept_language": "en-US,en;q=0.9",
+        "locale": "en-US",
+    },
+}
+
+DEFAULT_DEVICE_PROFILE = "pixel_5_android_11"
+DEVICE_PROFILE_NAME = (
+    _env_text("DEVICE_PROFILE", DEFAULT_DEVICE_PROFILE).lower().replace("-", "_")
+)
+if DEVICE_PROFILE_NAME not in DEVICE_PRESETS:
+    logger.warning(
+        "Unknown DEVICE_PROFILE=%r; falling back to %s",
+        DEVICE_PROFILE_NAME,
+        DEFAULT_DEVICE_PROFILE,
+    )
+    DEVICE_PROFILE_NAME = DEFAULT_DEVICE_PROFILE
+
+_active_device_preset = DEVICE_PRESETS[DEVICE_PROFILE_NAME]
+DEVICE_MODEL = _active_device_preset["model"]
+DEVICE_BRAND = _active_device_preset["brand"]
+DEVICE_MANUFACTURER = _active_device_preset["manufacturer"]
+ANDROID_VERSION = _active_device_preset["android_version"]
+ANDROID_SDK = _active_device_preset["android_sdk"]
+BUILD_ID = _active_device_preset["build_id"]
+DEVICE_ACCEPT_LANGUAGE = _active_device_preset["accept_language"]
+DEVICE_LOCALE = _active_device_preset["locale"]
 # Fallback emulation values used only when route-based geo detection is unavailable.
 EMULATION_TIMEZONE_ID = _env_text("EMULATION_TIMEZONE_ID", "America/Los_Angeles")
 EMULATION_GEO_LATITUDE = _env_float("EMULATION_GEO_LATITUDE", 37.3861)
@@ -246,7 +324,6 @@ PROXY_QUARANTINE_THRESHOLD = _env_int("PROXY_QUARANTINE_THRESHOLD", 3)
 PROXY_PRECHECK_ENABLED = _env_flag("PROXY_PRECHECK_ENABLED", "1")
 PROXY_PRECHECK_TIMEOUT_SECONDS = _env_int("PROXY_PRECHECK_TIMEOUT_SECONDS", 12)
 PROXY_DIAGNOSTICS_VERIFY_SSL = _env_flag("PROXY_DIAGNOSTICS_VERIFY_SSL", "0")
-BRIGHTDATA_STICKY_SESSION_ENABLED = _env_flag("BRIGHTDATA_STICKY_SESSION_ENABLED", "1")
 REGENERATE_DEVICE_ON_RETRY = _env_flag("REGENERATE_DEVICE_ON_RETRY", "1")
 
 # ── Email validation ──────────────────────────────────────────────────────────

@@ -184,10 +184,7 @@ def _is_proxy_policy_error(exc: Exception) -> bool:
         "policy_20130",
         "policy_20140",
         "blocked this target",
-        "immediate residential",
-        "full access",
-        "full residential access",
-        "bright data blocked",
+        "blocked this destination by policy",
     )
     return any(signal in message for signal in signals)
 
