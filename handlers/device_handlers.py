@@ -34,7 +34,8 @@ def get_user_device_profile(context: ContextTypes.DEFAULT_TYPE) -> str:
 def set_user_device_profile(context: ContextTypes.DEFAULT_TYPE, profile_name: str) -> str:
     """Persist the user's device profile choice and return the active profile."""
     active = profile_name if profile_name in config.DEVICE_PRESETS else config.DEVICE_PROFILE_NAME
-    context.user_data["device_profile"] = active
+    if context.user_data is not None:
+        context.user_data["device_profile"] = active
     return active
 
 
@@ -182,10 +183,6 @@ async def device_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         parse_mode="HTML",
         reply_markup=quick_actions_inline_keyboard(context),
     )
-
-
-# Suppress unused import warning for PROXY_MANAGER (kept for future use)
-_ = PROXY_MANAGER
 
 
 __all__ = [
