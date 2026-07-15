@@ -24,6 +24,12 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Install dev and runtime dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint with ruff
+        run: ruff check .
+
       - name: Compile every Python file
         run: python -m compileall -q .
 
@@ -31,3 +37,8 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}
         run: python .github/scripts/smoke_device_profiles.py
+
+      - name: Run unit tests
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+        run: pytest -q

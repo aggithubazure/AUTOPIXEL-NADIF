@@ -883,8 +883,8 @@ def _stop_page_load(driver: webdriver.Chrome) -> None:
     """Best-effort stop for a page that is still loading after a timeout."""
     try:
         driver.execute_script("window.stop();")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to stop page load: %s", exc)
 
 
 def _wait_for_password_stage(driver: webdriver.Chrome) -> WebElement | None:
@@ -947,10 +947,10 @@ def _wait_for_password_stage(driver: webdriver.Chrome) -> WebElement | None:
                 try:
                     driver.find_element(By.ID, "identifierNext").click()
                     re_clicked_identifier_next = True
-                except Exception:
-                    pass
-        except NoSuchElementException:
-            pass
+                except Exception as exc:
+                    logger.debug("failed to re-click identifier next: %s", exc)
+        except NoSuchElementException as exc:
+            logger.debug("identifier field not found while waiting for password stage: %s", exc)
 
         time.sleep(0.5)
 
@@ -987,8 +987,8 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
             driver.get("data:text/html,<title>AutoPixel Init</title><body>proxy-init</body>")
             time.sleep(3.5)
         else:
-            # --- MULAI INJEKSI WARM-UP ---
-            logger.info("Melakukan pemanasan profil (warm-up) sebelum login...")
+            # --- BEGIN WARM-UP INJECTION ---
+            logger.info("Warming up the browser profile before login...")
             try:
                 driver.get("https://news.google.com/")
                 time.sleep(random.uniform(3.0, 5.0))
@@ -997,7 +997,7 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
             except TimeoutException as exc:
                 logger.warning("Warm-up page load timed out; continuing anyway: %s", exc)
                 _stop_page_load(driver)
-            # --- AKHIR INJEKSI WARM-UP ---
+            # --- END WARM-UP INJECTION ---
 
         try:
             driver.get(config.GMAIL_LOGIN_URL)
@@ -1255,8 +1255,8 @@ def _capture_checkout_after_trial_click(
             "arguments[0].scrollIntoView({block:'center', inline:'center'});",
             button,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to scroll trial button into view: %s", exc)
 
     time.sleep(0.6)
     try:
@@ -1278,8 +1278,8 @@ def _capture_checkout_after_trial_click(
         if len(current_handles) > len(before_handles):
             try:
                 driver.switch_to.window(current_handles[-1])
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("failed to switch to checkout window: %s", exc)
 
         try:
             current_url = driver.current_url
@@ -1295,8 +1295,8 @@ def _capture_checkout_after_trial_click(
                 src = (frame.get_attribute("src") or "").strip()
                 if src and _looks_like_checkout_url(src):
                     return src
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("failed to inspect checkout iframes: %s", exc)
 
         time.sleep(0.5)
 
@@ -1398,8 +1398,8 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
                 try:
                     driver.back()
                     time.sleep(1.5)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("failed to navigate back from locked offer page: %s", exc)
         except Exception as exc:
             logger.warning("Error clicking LOCKED link: %s", exc)
             continue
@@ -1608,14 +1608,14 @@ def close_driver(driver) -> None:
     if driver:
         try:
             driver.quit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("failed to quit chrome driver: %s", exc)
         forwarder = getattr(driver, "_autopixel_proxy_forwarder", None)
         if forwarder:
             try:
                 forwarder.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("failed to stop proxy forwarder: %s", exc)
 
 
 __all__ = [

@@ -53,8 +53,8 @@ def clear_session(chat_id: int) -> None:
     if driver:
         try:
             driver.quit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("failed to quit session driver: %s", exc)
 
     for key in ("password", "email"):
         val = session.get(key)

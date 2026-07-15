@@ -136,8 +136,8 @@ async def device_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     if not requested or requested not in config.DEVICE_PRESETS:
         try:
             await query.answer(tr(context, "device_unknown"), show_alert=True)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("failed to answer unknown device callback: %s", exc)
         return
 
     active = set_user_device_profile(context, requested)
@@ -154,8 +154,8 @@ async def device_select(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     try:
         await query.answer(tr(context, "device_set_toast", model=preset["model"]))
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to answer device selection callback: %s", exc)
 
     body_lines = [
         tr(context, "device_set_title"),

@@ -132,8 +132,8 @@ class _ForwarderHandler(socketserver.StreamRequestHandler):
         finally:
             try:
                 upstream.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("failed to close upstream connect socket: %s", exc)
 
     def _handle_http(self, method: str, target: str, version: str, headers: list[str]) -> None:
         upstream = self._open_upstream()
@@ -152,8 +152,8 @@ class _ForwarderHandler(socketserver.StreamRequestHandler):
         finally:
             try:
                 upstream.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("failed to close upstream http socket: %s", exc)
 
     def _pipe_bidirectional(self, client: socket.socket, upstream: socket.socket) -> None:
         sockets = [client, upstream]

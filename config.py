@@ -253,7 +253,24 @@ def _detect_chrome_version() -> tuple[str, int]:
                 pass
     return "124.0.6367.82", 124
 
-CHROME_VERSION, CHROME_MAJOR_VERSION = _detect_chrome_version()
+
+_detected_chrome: tuple[str, int] | None = None
+
+
+def _get_chrome_version() -> tuple[str, int]:
+    """Return cached Chrome version information, detecting it on first use."""
+    global _detected_chrome
+    if _detected_chrome is None:
+        _detected_chrome = _detect_chrome_version()
+    return _detected_chrome
+
+
+def __getattr__(name: str):
+    if name == "CHROME_VERSION":
+        return _get_chrome_version()[0]
+    if name == "CHROME_MAJOR_VERSION":
+        return _get_chrome_version()[1]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Pool of realistic Pixel 10 Pro user-agent strings.
 # Keep these browser-consistent; avoid WebView-only markers unless the

@@ -106,6 +106,10 @@ async def login_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     """Begin the login conversation - ask for email."""
     message = await prepare_action_message(update)
     await message.reply_text(
+        tr(context, "login_security_notice"),
+        parse_mode="HTML",
+    )
+    await message.reply_text(
         tr(context, "login_prompt_email"),
         parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove(),
@@ -225,8 +229,8 @@ async def login_password(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     try:
         await update.message.delete()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to delete password message: %s", exc)
 
     await context.bot.send_message(
         chat_id=chat_id,
