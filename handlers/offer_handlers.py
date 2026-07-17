@@ -23,6 +23,7 @@ from services.google_automation import (
     close_driver,
     diagnose_offer_page,
     dump_offer_debug_artifacts,
+    get_signin_error_text,
     resolve_manual_login,
     start_login,
     submit_2fa_code,
@@ -114,6 +115,29 @@ def _diagnostic_means_embedded_trial(diagnostic: str | None) -> bool:
     """Return True when the page diagnosis indicates an eligible trial without a captured link."""
     normalized = (diagnostic or "").lower()
     return "embedded" in normalized and "trial" in normalized
+
+
+def _generate_unused_totp_code(
+    secret: str, last_code: str | None, timeout: float = 35.0
+) -> str:
+    """Return a TOTP code that differs from the previously submitted one.
+
+    Google rejects a TOTP code it already consumed during a recent login. On a
+    rapid retry the freshly generated code can still fall in the same 30-second
+    window as the previous attempt, so we briefly wait for the window to roll
+    over (bounded by ``timeout``) to guarantee an unused code.
+    """
+    import pyotp
+
+    totp = pyotp.TOTP(secret)
+    code = totp.now()
+    if not last_code:
+        return code
+    deadline = time.time() + timeout
+    while code == last_code and time.time() < deadline:
+        time.sleep(1)
+        code = totp.now()
+    return code
 
 
 def _is_manual_challenge_error(exc: Exception) -> bool:
@@ -609,9 +633,17 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                         totp_secret = session.get("totp_secret")
                         if totp_secret:
                             try:
-                                import pyotp
-
-                                code = pyotp.TOTP(totp_secret).now()
+                                last_code = (
+                                    session.get("_last_totp_code")
+                                    if attempt > 1
+                                    else None
+                                )
+                                code = await asyncio.to_thread(
+                                    _generate_unused_totp_code,
+                                    totp_secret,
+                                    last_code,
+                                )
+                                session["_last_totp_code"] = code
                                 logger.info(
                                     "Auto-generated TOTP code for chat %s (attempt %d)",
                                     chat_id,
@@ -619,10 +651,57 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                                 )
                                 accepted = await asyncio.to_thread(submit_2fa_code, driver, code)
                                 if not accepted:
+                                    reject_url = ""
+                                    reject_reason = ""
+                                    try:
+                                        reject_url = await asyncio.to_thread(
+                                            lambda: driver.current_url or ""
+                                        )
+                                    except Exception:
+                                        reject_url = ""
+                                    try:
+                                        reject_reason = (
+                                            await asyncio.to_thread(
+                                                get_signin_error_text, driver
+                                            )
+                                            or ""
+                                        )
+                                    except Exception:
+                                        reject_reason = ""
+                                    totp_artifacts = await asyncio.to_thread(
+                                        dump_offer_debug_artifacts,
+                                        driver,
+                                        chat_id,
+                                        attempt,
+                                        device.session_id,
+                                    )
+                                    logger.warning(
+                                        "Auto-TOTP rejected for chat %s (attempt %d). url=%s reason=%s",
+                                        chat_id,
+                                        attempt,
+                                        reject_url or "<none>",
+                                        reject_reason or "<none>",
+                                    )
                                     close_driver(driver)
                                     driver = None
+                                    reject_text = tr(context, "offer_auto_totp_rejected")
+                                    if reject_reason:
+                                        reject_text += "\n\n" + tr(
+                                            context,
+                                            "offer_totp_debug_reason",
+                                            reason=reject_reason,
+                                        )
+                                    if reject_url:
+                                        reject_text += "\n" + tr(
+                                            context,
+                                            "offer_totp_debug_url",
+                                            url=reject_url,
+                                        )
+                                    reject_text += _format_artifact_note(
+                                        context, totp_artifacts
+                                    )
                                     await message.reply_text(
-                                        tr(context, "offer_auto_totp_rejected"),
+                                        reject_text,
                                         reply_markup=main_menu_keyboard(context),
                                     )
                                     return ConversationHandler.END

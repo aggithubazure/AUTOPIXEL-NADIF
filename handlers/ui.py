@@ -103,6 +103,8 @@ I18N = {
         "offer_auto_totp_rejected": (
             "❌ Auto-generated TOTP code was rejected. Please check your TOTP secret key."
         ),
+        "offer_totp_debug_reason": "💬 Message from Google: {reason}",
+        "offer_totp_debug_url": "🔗 Last Google page: {url}",
         "offer_login_success_checking": (
             "✅ Login successful ({attempt}/{max_attempts}).\n"
             "Checking Gemini Pro offer now..."
@@ -431,6 +433,8 @@ I18N = {
         "offer_auto_totp_rejected": (
             "❌ Kode TOTP otomatis ditolak. Silakan periksa secret key TOTP Anda."
         ),
+        "offer_totp_debug_reason": "💬 Pesan dari Google: {reason}",
+        "offer_totp_debug_url": "🔗 Halaman Google terakhir: {url}",
         "offer_login_success_checking": (
             "✅ Login berhasil ({attempt}/{max_attempts}).\n"
             "Sedang memeriksa offer Gemini Pro sekarang..."

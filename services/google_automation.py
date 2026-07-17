@@ -534,22 +534,35 @@ def wait_for_login_resolution(driver: webdriver.Chrome, timeout: int = 10) -> st
 
 
 def _has_totp_error(driver: webdriver.Chrome) -> bool:
-    """Best-effort detection of inline TOTP errors on the Google challenge page."""
-    try:
-        page_text = driver.page_source.lower()
-    except Exception:
-        return False
+    """Detect inline TOTP errors, preferring the visible alert region.
 
+    This used to scan the entire page source for generic phrases such as
+    "try again". Those strings live in hidden templates on Google's challenge
+    page even after a *correct* code, so the scan produced false "rejected"
+    results. We now match only unambiguous, TOTP-specific error phrases and
+    prefer the visible error region over the raw page source.
+    """
     error_indicators = (
         "wrong code",
         "incorrect code",
         "invalid code",
         "enter a valid code",
+        "wrong verification code",
         "couldn't verify",
         "could not verify",
-        "try again",
         "expired code",
+        "code has expired",
+        "that code didn't work",
     )
+
+    visible_error = (get_signin_error_text(driver) or "").lower()
+    if visible_error:
+        return any(indicator in visible_error for indicator in error_indicators)
+
+    try:
+        page_text = driver.page_source.lower()
+    except Exception:
+        return False
     return any(indicator in page_text for indicator in error_indicators)
 
 
@@ -1086,24 +1099,71 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
         ) from exc
 
 
+def _find_totp_input(driver: webdriver.Chrome, timeout: float = 2.0):
+    """Return the visible TOTP code input element, or None when absent."""
+    for selector in (
+        'input[type="tel"]',
+        'input[name="totpPin"]',
+        '#totpPin',
+        'input[type="text"]',
+    ):
+        try:
+            field = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+            )
+            if field:
+                return field
+        except TimeoutException:
+            continue
+    return None
+
+
+def _select_authenticator_method(driver: webdriver.Chrome) -> bool:
+    """Pick the Authenticator option on Google's 2-Step Verification chooser.
+
+    On repeated logins Google frequently shows a "Choose how you want to sign
+    in" page instead of going straight to the code field. Selecting "Get a
+    verification code from the Google Authenticator app" reveals the TOTP input.
+    """
+    option_xpaths = (
+        '//*[@data-challengetype="6"]',
+        '//*[contains(., "verification code from the Google Authenticator")]'
+        '[not(.//*[contains(., "verification code from the Google Authenticator")])]',
+        '//li[contains(., "Google Authenticator")]',
+        '//*[@role="link"][contains(., "Authenticator")]',
+        '//*[@role="button"][contains(., "Authenticator")]',
+        '//div[contains(., "Google Authenticator app")]'
+        '[not(.//div[contains(., "Google Authenticator app")])]',
+    )
+    for xpath in option_xpaths:
+        try:
+            element = driver.find_element(By.XPATH, xpath)
+        except NoSuchElementException:
+            continue
+        try:
+            element.click()
+        except Exception:
+            try:
+                driver.execute_script("arguments[0].click();", element)
+            except Exception as exc:
+                logger.debug("Authenticator option JS click failed: %s", exc)
+                continue
+        logger.info("Selected the Google Authenticator option on the 2FA chooser.")
+        time.sleep(2)
+        return True
+    return False
+
+
 def submit_totp_code(driver: webdriver.Chrome, code: str) -> bool:
     """Enter TOTP/authenticator code and return True when accepted."""
     try:
-        totp_field = None
-        for selector in (
-            'input[type="tel"]',
-            'input[name="totpPin"]',
-            '#totpPin',
-            'input[type="text"]',
-        ):
-            try:
-                totp_field = WebDriverWait(driver, 2).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                )
-                if totp_field:
-                    break
-            except TimeoutException:
-                continue
+        totp_field = _find_totp_input(driver)
+        if not totp_field:
+            # Google may be showing the "Choose how you want to sign in" chooser
+            # instead of the code field (common on repeated logins). Pick the
+            # Authenticator option to reach the TOTP input, then look again.
+            if _select_authenticator_method(driver):
+                totp_field = _find_totp_input(driver)
 
         if not totp_field:
             return False
@@ -1626,5 +1686,6 @@ __all__ = [
     "check_offer_with_driver",
     "diagnose_offer_page",
     "dump_offer_debug_artifacts",
+    "get_signin_error_text",
     "close_driver",
 ]
