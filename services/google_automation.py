@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -190,11 +191,33 @@ def _detect_driver_major_version(chromedriver_path: str | None) -> Optional[int]
     return None
 
 
+def _chrome_profile_dir_for(profile_key: str | None) -> str | None:
+    """Return a stable, private on-disk Chrome user-data-dir for an account.
+
+    The directory name is derived from a hash of *profile_key* (typically the
+    account email) so the email itself never appears on disk. Returns ``None``
+    when persistence is disabled or the directory cannot be created, in which
+    case the caller falls back to an ephemeral profile.
+    """
+    key = (profile_key or "").strip().lower()
+    if not key or not config.PERSIST_CHROME_PROFILE:
+        return None
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    path = os.path.join(config.CHROME_PROFILE_DIR, f"profile_{digest}")
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Could not create persistent Chrome profile dir %s: %s", path, exc)
+        return None
+    return path
+
+
 def build_driver(
     profile: DeviceProfile,
     headless: Optional[bool] = None,
     proxy_url: str | None = None,
     proxy_session_token: str | None = None,
+    profile_key: str | None = None,
 ) -> webdriver.Chrome:
     """Return a Chrome WebDriver configured for the device profile."""
     runtime_proxy_url = resolve_runtime_proxy_url(proxy_url, proxy_session_token)
@@ -204,6 +227,11 @@ def build_driver(
 
     if headless_enabled:
         options.add_argument("--headless=new")
+
+    persistent_profile_dir = _chrome_profile_dir_for(profile_key)
+    if persistent_profile_dir:
+        options.add_argument(f"--user-data-dir={persistent_profile_dir}")
+        logger.info("Using persistent Chrome profile for this account.")
 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -298,6 +326,7 @@ def build_driver(
     setattr(driver, "_autopixel_headless", headless_enabled)
     setattr(driver, "_autopixel_proxy_requires_auth", _proxy_requires_auth(runtime_proxy_url))
     setattr(driver, "_autopixel_proxy_forwarder", proxy_forwarder)
+    setattr(driver, "_autopixel_persistent_profile", bool(persistent_profile_dir))
 
     driver.implicitly_wait(config.IMPLICIT_WAIT)
     driver.set_page_load_timeout(config.PAGE_LOAD_TIMEOUT)
@@ -980,6 +1009,34 @@ def _wait_for_password_stage(driver: webdriver.Chrome) -> WebElement | None:
     raise TimeoutException("Password field did not appear in time.")
 
 
+def _is_authenticated_session(driver: webdriver.Chrome, timeout: float = 8.0) -> bool:
+    """Return True when the browser already holds a valid Google session.
+
+    Navigates to the account home page; if the saved cookies are still valid
+    Google keeps us on ``myaccount.google.com`` instead of bouncing back to the
+    sign-in flow. Used to skip re-authentication (and repeated 2FA prompts) when
+    a persistent per-account Chrome profile is active.
+    """
+    try:
+        driver.get("https://myaccount.google.com/")
+    except TimeoutException:
+        _stop_page_load(driver)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            parsed = urlparse((driver.current_url or "").lower())
+        except Exception:
+            return False
+        host = parsed.hostname or ""
+        path = parsed.path or ""
+        if "accounts.google.com" in host or "/signin" in path or "servicelogin" in path:
+            return False
+        if "myaccount.google.com" in host:
+            return True
+        time.sleep(0.5)
+    return False
+
+
 def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
     """Perform Google login and return status: success, failed, or needs_totp."""
     try:
@@ -1000,6 +1057,18 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
             driver.get("data:text/html,<title>AutoPixel Init</title><body>proxy-init</body>")
             time.sleep(3.5)
         else:
+            if getattr(driver, "_autopixel_persistent_profile", False):
+                try:
+                    if _is_authenticated_session(driver):
+                        logger.info(
+                            "Reusing saved Google session for this account; skipping credential entry."
+                        )
+                        return "success"
+                except Exception as exc:
+                    logger.warning(
+                        "Saved-session probe failed; continuing with normal login: %s",
+                        exc,
+                    )
             # --- BEGIN WARM-UP INJECTION ---
             logger.info("Warming up the browser profile before login...")
             try:
@@ -1424,9 +1493,11 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
         try:
             text = (link.text + " " + (link.get_attribute("aria-label") or "")).lower()
             href = link.get_attribute("href") or ""
-            if "LOCKED" in href:
+            if "LOCKED:" in href or "/benefits/" in href:
                 continue
-            if any(keyword in text for keyword in keywords) and is_correct_offer_url(href):
+            if any(keyword in text for keyword in keywords) and (
+                is_correct_offer_url(href) or _looks_like_checkout_url(href)
+            ):
                 return href
         except Exception:
             continue
@@ -1442,7 +1513,11 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
     for link in all_links:
         try:
             href = link.get_attribute("href") or ""
-            if "LOCKED" not in href or "BARD_ADVANCED" not in href:
+            href_upper = href.upper()
+            if "LOCKED:" not in href_upper or not any(
+                marker in href_upper
+                for marker in ("BARD_ADVANCED", "GEMINI", "AI_PRO", "AI_PREMIUM", "AIPREMIUM")
+            ):
                 continue
 
             old_url = driver.current_url
@@ -1469,7 +1544,11 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
 
 def navigate_google_one(driver: webdriver.Chrome) -> Optional[str]:
     """Navigate Google One pages and attempt to find the offer link."""
-    for url in (config.GOOGLE_ONE_OFFERS_URL, config.GOOGLE_ONE_URL):
+    for url in (
+        config.GOOGLE_ONE_OFFERS_URL,
+        config.GOOGLE_ONE_BENEFITS_URL,
+        config.GOOGLE_ONE_URL,
+    ):
         try:
             logger.info("Navigating to %s", url)
             driver.get(url)
@@ -1581,6 +1660,7 @@ def start_login(
         headless=effective_headless,
         proxy_url=proxy_url,
         proxy_session_token=proxy_session_token,
+        profile_key=email,
     )
 
     try:
@@ -1615,6 +1695,7 @@ def start_login(
                 headless=False,
                 proxy_url=proxy_url,
                 proxy_session_token=proxy_session_token,
+                profile_key=email,
             )
             try:
                 status = gmail_login(retry_driver, email, password)

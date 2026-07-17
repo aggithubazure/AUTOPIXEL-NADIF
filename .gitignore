@@ -21,3 +21,6 @@ tmp_*.py
 
 # Local proxy list
 proxies.txt
+
+# Persistent per-account Chrome profiles (contain Google session cookies)
+chrome_profiles/
