@@ -181,7 +181,7 @@ def inspect_connection(
     runtime_proxy_url = resolve_runtime_proxy_url(proxy_url, proxy_session_token)
     try:
         payload = _open_json_with_httpx(IP_API_URL, runtime_proxy_url, timeout=15)
-    except Exception as exc:
+    except Exception:
         try:
             payload = _open_json_with_urllib(IP_API_URL, runtime_proxy_url, timeout=15)
         except URLError as fallback_exc:
@@ -322,7 +322,7 @@ def probe_google_signin(
             timeout,
             headers=headers,
         )
-    except Exception as exc:
+    except Exception:
         try:
             status_code, final_url, latency_ms = _probe_url_with_urllib(
                 probe_url,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import logging
@@ -190,11 +191,33 @@ def _detect_driver_major_version(chromedriver_path: str | None) -> Optional[int]
     return None
 
 
+def _chrome_profile_dir_for(profile_key: str | None) -> str | None:
+    """Return a stable, private on-disk Chrome user-data-dir for an account.
+
+    The directory name is derived from a hash of *profile_key* (typically the
+    account email) so the email itself never appears on disk. Returns ``None``
+    when persistence is disabled or the directory cannot be created, in which
+    case the caller falls back to an ephemeral profile.
+    """
+    key = (profile_key or "").strip().lower()
+    if not key or not config.PERSIST_CHROME_PROFILE:
+        return None
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
+    path = os.path.join(config.CHROME_PROFILE_DIR, f"profile_{digest}")
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError as exc:
+        logger.warning("Could not create persistent Chrome profile dir %s: %s", path, exc)
+        return None
+    return path
+
+
 def build_driver(
     profile: DeviceProfile,
     headless: Optional[bool] = None,
     proxy_url: str | None = None,
     proxy_session_token: str | None = None,
+    profile_key: str | None = None,
 ) -> webdriver.Chrome:
     """Return a Chrome WebDriver configured for the device profile."""
     runtime_proxy_url = resolve_runtime_proxy_url(proxy_url, proxy_session_token)
@@ -204,6 +227,11 @@ def build_driver(
 
     if headless_enabled:
         options.add_argument("--headless=new")
+
+    persistent_profile_dir = _chrome_profile_dir_for(profile_key)
+    if persistent_profile_dir:
+        options.add_argument(f"--user-data-dir={persistent_profile_dir}")
+        logger.info("Using persistent Chrome profile for this account.")
 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
@@ -298,6 +326,7 @@ def build_driver(
     setattr(driver, "_autopixel_headless", headless_enabled)
     setattr(driver, "_autopixel_proxy_requires_auth", _proxy_requires_auth(runtime_proxy_url))
     setattr(driver, "_autopixel_proxy_forwarder", proxy_forwarder)
+    setattr(driver, "_autopixel_persistent_profile", bool(persistent_profile_dir))
 
     driver.implicitly_wait(config.IMPLICIT_WAIT)
     driver.set_page_load_timeout(config.PAGE_LOAD_TIMEOUT)
@@ -534,22 +563,35 @@ def wait_for_login_resolution(driver: webdriver.Chrome, timeout: int = 10) -> st
 
 
 def _has_totp_error(driver: webdriver.Chrome) -> bool:
-    """Best-effort detection of inline TOTP errors on the Google challenge page."""
-    try:
-        page_text = driver.page_source.lower()
-    except Exception:
-        return False
+    """Detect inline TOTP errors, preferring the visible alert region.
 
+    This used to scan the entire page source for generic phrases such as
+    "try again". Those strings live in hidden templates on Google's challenge
+    page even after a *correct* code, so the scan produced false "rejected"
+    results. We now match only unambiguous, TOTP-specific error phrases and
+    prefer the visible error region over the raw page source.
+    """
     error_indicators = (
         "wrong code",
         "incorrect code",
         "invalid code",
         "enter a valid code",
+        "wrong verification code",
         "couldn't verify",
         "could not verify",
-        "try again",
         "expired code",
+        "code has expired",
+        "that code didn't work",
     )
+
+    visible_error = (get_signin_error_text(driver) or "").lower()
+    if visible_error:
+        return any(indicator in visible_error for indicator in error_indicators)
+
+    try:
+        page_text = driver.page_source.lower()
+    except Exception:
+        return False
     return any(indicator in page_text for indicator in error_indicators)
 
 
@@ -883,8 +925,8 @@ def _stop_page_load(driver: webdriver.Chrome) -> None:
     """Best-effort stop for a page that is still loading after a timeout."""
     try:
         driver.execute_script("window.stop();")
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to stop page load: %s", exc)
 
 
 def _wait_for_password_stage(driver: webdriver.Chrome) -> WebElement | None:
@@ -947,10 +989,10 @@ def _wait_for_password_stage(driver: webdriver.Chrome) -> WebElement | None:
                 try:
                     driver.find_element(By.ID, "identifierNext").click()
                     re_clicked_identifier_next = True
-                except Exception:
-                    pass
-        except NoSuchElementException:
-            pass
+                except Exception as exc:
+                    logger.debug("failed to re-click identifier next: %s", exc)
+        except NoSuchElementException as exc:
+            logger.debug("identifier field not found while waiting for password stage: %s", exc)
 
         time.sleep(0.5)
 
@@ -965,6 +1007,34 @@ def _wait_for_password_stage(driver: webdriver.Chrome) -> WebElement | None:
         )
 
     raise TimeoutException("Password field did not appear in time.")
+
+
+def _is_authenticated_session(driver: webdriver.Chrome, timeout: float = 8.0) -> bool:
+    """Return True when the browser already holds a valid Google session.
+
+    Navigates to the account home page; if the saved cookies are still valid
+    Google keeps us on ``myaccount.google.com`` instead of bouncing back to the
+    sign-in flow. Used to skip re-authentication (and repeated 2FA prompts) when
+    a persistent per-account Chrome profile is active.
+    """
+    try:
+        driver.get("https://myaccount.google.com/")
+    except TimeoutException:
+        _stop_page_load(driver)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            parsed = urlparse((driver.current_url or "").lower())
+        except Exception:
+            return False
+        host = parsed.hostname or ""
+        path = parsed.path or ""
+        if "accounts.google.com" in host or "/signin" in path or "servicelogin" in path:
+            return False
+        if "myaccount.google.com" in host:
+            return True
+        time.sleep(0.5)
+    return False
 
 
 def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
@@ -987,8 +1057,20 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
             driver.get("data:text/html,<title>AutoPixel Init</title><body>proxy-init</body>")
             time.sleep(3.5)
         else:
-            # --- MULAI INJEKSI WARM-UP ---
-            logger.info("Melakukan pemanasan profil (warm-up) sebelum login...")
+            if getattr(driver, "_autopixel_persistent_profile", False):
+                try:
+                    if _is_authenticated_session(driver):
+                        logger.info(
+                            "Reusing saved Google session for this account; skipping credential entry."
+                        )
+                        return "success"
+                except Exception as exc:
+                    logger.warning(
+                        "Saved-session probe failed; continuing with normal login: %s",
+                        exc,
+                    )
+            # --- BEGIN WARM-UP INJECTION ---
+            logger.info("Warming up the browser profile before login...")
             try:
                 driver.get("https://news.google.com/")
                 time.sleep(random.uniform(3.0, 5.0))
@@ -997,7 +1079,7 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
             except TimeoutException as exc:
                 logger.warning("Warm-up page load timed out; continuing anyway: %s", exc)
                 _stop_page_load(driver)
-            # --- AKHIR INJEKSI WARM-UP ---
+            # --- END WARM-UP INJECTION ---
 
         try:
             driver.get(config.GMAIL_LOGIN_URL)
@@ -1086,24 +1168,71 @@ def gmail_login(driver: webdriver.Chrome, email: str, password: str) -> str:
         ) from exc
 
 
+def _find_totp_input(driver: webdriver.Chrome, timeout: float = 2.0):
+    """Return the visible TOTP code input element, or None when absent."""
+    for selector in (
+        'input[type="tel"]',
+        'input[name="totpPin"]',
+        '#totpPin',
+        'input[type="text"]',
+    ):
+        try:
+            field = WebDriverWait(driver, timeout).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+            )
+            if field:
+                return field
+        except TimeoutException:
+            continue
+    return None
+
+
+def _select_authenticator_method(driver: webdriver.Chrome) -> bool:
+    """Pick the Authenticator option on Google's 2-Step Verification chooser.
+
+    On repeated logins Google frequently shows a "Choose how you want to sign
+    in" page instead of going straight to the code field. Selecting "Get a
+    verification code from the Google Authenticator app" reveals the TOTP input.
+    """
+    option_xpaths = (
+        '//*[@data-challengetype="6"]',
+        '//*[contains(., "verification code from the Google Authenticator")]'
+        '[not(.//*[contains(., "verification code from the Google Authenticator")])]',
+        '//li[contains(., "Google Authenticator")]',
+        '//*[@role="link"][contains(., "Authenticator")]',
+        '//*[@role="button"][contains(., "Authenticator")]',
+        '//div[contains(., "Google Authenticator app")]'
+        '[not(.//div[contains(., "Google Authenticator app")])]',
+    )
+    for xpath in option_xpaths:
+        try:
+            element = driver.find_element(By.XPATH, xpath)
+        except NoSuchElementException:
+            continue
+        try:
+            element.click()
+        except Exception:
+            try:
+                driver.execute_script("arguments[0].click();", element)
+            except Exception as exc:
+                logger.debug("Authenticator option JS click failed: %s", exc)
+                continue
+        logger.info("Selected the Google Authenticator option on the 2FA chooser.")
+        time.sleep(2)
+        return True
+    return False
+
+
 def submit_totp_code(driver: webdriver.Chrome, code: str) -> bool:
     """Enter TOTP/authenticator code and return True when accepted."""
     try:
-        totp_field = None
-        for selector in (
-            'input[type="tel"]',
-            'input[name="totpPin"]',
-            '#totpPin',
-            'input[type="text"]',
-        ):
-            try:
-                totp_field = WebDriverWait(driver, 2).until(
-                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
-                )
-                if totp_field:
-                    break
-            except TimeoutException:
-                continue
+        totp_field = _find_totp_input(driver)
+        if not totp_field:
+            # Google may be showing the "Choose how you want to sign in" chooser
+            # instead of the code field (common on repeated logins). Pick the
+            # Authenticator option to reach the TOTP input, then look again.
+            if _select_authenticator_method(driver):
+                totp_field = _find_totp_input(driver)
 
         if not totp_field:
             return False
@@ -1255,8 +1384,8 @@ def _capture_checkout_after_trial_click(
             "arguments[0].scrollIntoView({block:'center', inline:'center'});",
             button,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to scroll trial button into view: %s", exc)
 
     time.sleep(0.6)
     try:
@@ -1278,8 +1407,8 @@ def _capture_checkout_after_trial_click(
         if len(current_handles) > len(before_handles):
             try:
                 driver.switch_to.window(current_handles[-1])
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("failed to switch to checkout window: %s", exc)
 
         try:
             current_url = driver.current_url
@@ -1295,8 +1424,8 @@ def _capture_checkout_after_trial_click(
                 src = (frame.get_attribute("src") or "").strip()
                 if src and _looks_like_checkout_url(src):
                     return src
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("failed to inspect checkout iframes: %s", exc)
 
         time.sleep(0.5)
 
@@ -1364,9 +1493,11 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
         try:
             text = (link.text + " " + (link.get_attribute("aria-label") or "")).lower()
             href = link.get_attribute("href") or ""
-            if "LOCKED" in href:
+            if "LOCKED:" in href or "/benefits/" in href:
                 continue
-            if any(keyword in text for keyword in keywords) and is_correct_offer_url(href):
+            if any(keyword in text for keyword in keywords) and (
+                is_correct_offer_url(href) or _looks_like_checkout_url(href)
+            ):
                 return href
         except Exception:
             continue
@@ -1382,7 +1513,11 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
     for link in all_links:
         try:
             href = link.get_attribute("href") or ""
-            if "LOCKED" not in href or "BARD_ADVANCED" not in href:
+            href_upper = href.upper()
+            if "LOCKED:" not in href_upper or not any(
+                marker in href_upper
+                for marker in ("BARD_ADVANCED", "GEMINI", "AI_PRO", "AI_PREMIUM", "AIPREMIUM")
+            ):
                 continue
 
             old_url = driver.current_url
@@ -1398,8 +1533,8 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
                 try:
                     driver.back()
                     time.sleep(1.5)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("failed to navigate back from locked offer page: %s", exc)
         except Exception as exc:
             logger.warning("Error clicking LOCKED link: %s", exc)
             continue
@@ -1409,7 +1544,11 @@ def extract_payment_link(driver: webdriver.Chrome) -> Optional[str]:
 
 def navigate_google_one(driver: webdriver.Chrome) -> Optional[str]:
     """Navigate Google One pages and attempt to find the offer link."""
-    for url in (config.GOOGLE_ONE_OFFERS_URL, config.GOOGLE_ONE_URL):
+    for url in (
+        config.GOOGLE_ONE_OFFERS_URL,
+        config.GOOGLE_ONE_BENEFITS_URL,
+        config.GOOGLE_ONE_URL,
+    ):
         try:
             logger.info("Navigating to %s", url)
             driver.get(url)
@@ -1521,6 +1660,7 @@ def start_login(
         headless=effective_headless,
         proxy_url=proxy_url,
         proxy_session_token=proxy_session_token,
+        profile_key=email,
     )
 
     try:
@@ -1555,6 +1695,7 @@ def start_login(
                 headless=False,
                 proxy_url=proxy_url,
                 proxy_session_token=proxy_session_token,
+                profile_key=email,
             )
             try:
                 status = gmail_login(retry_driver, email, password)
@@ -1608,14 +1749,14 @@ def close_driver(driver) -> None:
     if driver:
         try:
             driver.quit()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("failed to quit chrome driver: %s", exc)
         forwarder = getattr(driver, "_autopixel_proxy_forwarder", None)
         if forwarder:
             try:
                 forwarder.stop()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("failed to stop proxy forwarder: %s", exc)
 
 
 __all__ = [
@@ -1626,5 +1767,6 @@ __all__ = [
     "check_offer_with_driver",
     "diagnose_offer_page",
     "dump_offer_debug_artifacts",
+    "get_signin_error_text",
     "close_driver",
 ]

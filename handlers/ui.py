@@ -103,6 +103,8 @@ I18N = {
         "offer_auto_totp_rejected": (
             "❌ Auto-generated TOTP code was rejected. Please check your TOTP secret key."
         ),
+        "offer_totp_debug_reason": "💬 Message from Google: {reason}",
+        "offer_totp_debug_url": "🔗 Last Google page: {url}",
         "offer_login_success_checking": (
             "✅ Login successful ({attempt}/{max_attempts}).\n"
             "Checking Gemini Pro offer now..."
@@ -226,6 +228,14 @@ I18N = {
             "but AutoPixel did not capture the checkout link automatically."
         ),
         "lang_set": "🌐 Language set to English.",
+        "login_security_notice": (
+            "🔐 [·] Security and Consent\n"
+            "This bot signs in to Google with the credentials you send, to check the promo offer for you.\n"
+            "• Use only an account you personally own and control.\n"
+            "• Your password is held in memory for this session only and wiped after each check.\n"
+            "• Automating Google sign-in may conflict with Google's Terms of Service — continue only if you consent.\n"
+            "Send /cancel to stop at any time."
+        ),
         "login_prompt_email": (
             "📧 [·] Login\n"
             "Send your Google email address.\n"
@@ -423,6 +433,8 @@ I18N = {
         "offer_auto_totp_rejected": (
             "❌ Kode TOTP otomatis ditolak. Silakan periksa secret key TOTP Anda."
         ),
+        "offer_totp_debug_reason": "💬 Pesan dari Google: {reason}",
+        "offer_totp_debug_url": "🔗 Halaman Google terakhir: {url}",
         "offer_login_success_checking": (
             "✅ Login berhasil ({attempt}/{max_attempts}).\n"
             "Sedang memeriksa offer Gemini Pro sekarang..."
@@ -552,6 +564,14 @@ I18N = {
             "tetapi AutoPixel belum berhasil menangkap link checkout secara otomatis."
         ),
         "lang_set": "🌐 Bahasa diubah ke Indonesia.",
+        "login_security_notice": (
+            "🔐 [·] Keamanan dan Persetujuan\n"
+            "Bot ini masuk ke Google memakai kredensial yang Anda kirim, untuk memeriksa penawaran promo untuk Anda.\n"
+            "• Gunakan hanya akun yang benar-benar Anda miliki dan kendalikan.\n"
+            "• Password Anda hanya disimpan di memori selama sesi ini dan dihapus setelah setiap pemeriksaan.\n"
+            "• Mengotomatiskan proses masuk Google dapat melanggar Ketentuan Layanan Google — lanjutkan hanya jika Anda setuju.\n"
+            "Kirim /cancel untuk berhenti kapan saja."
+        ),
         "login_prompt_email": (
             "📧 [·] Login\n"
             "Kirim alamat email Google Anda.\n"
@@ -742,8 +762,8 @@ async def prepare_action_message(update: Update):
     if query:
         try:
             await query.answer()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("failed to answer callback query: %s", exc)
     return update.effective_message
 
 

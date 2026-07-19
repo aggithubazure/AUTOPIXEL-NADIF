@@ -23,6 +23,7 @@ from services.google_automation import (
     close_driver,
     diagnose_offer_page,
     dump_offer_debug_artifacts,
+    get_signin_error_text,
     resolve_manual_login,
     start_login,
     submit_2fa_code,
@@ -114,6 +115,29 @@ def _diagnostic_means_embedded_trial(diagnostic: str | None) -> bool:
     """Return True when the page diagnosis indicates an eligible trial without a captured link."""
     normalized = (diagnostic or "").lower()
     return "embedded" in normalized and "trial" in normalized
+
+
+def _generate_unused_totp_code(
+    secret: str, last_code: str | None, timeout: float = 35.0
+) -> str:
+    """Return a TOTP code that differs from the previously submitted one.
+
+    Google rejects a TOTP code it already consumed during a recent login. On a
+    rapid retry the freshly generated code can still fall in the same 30-second
+    window as the previous attempt, so we briefly wait for the window to roll
+    over (bounded by ``timeout``) to guarantee an unused code.
+    """
+    import pyotp
+
+    totp = pyotp.TOTP(secret)
+    code = totp.now()
+    if not last_code:
+        return code
+    deadline = time.time() + timeout
+    while code == last_code and time.time() < deadline:
+        time.sleep(1)
+        code = totp.now()
+    return code
 
 
 def _is_manual_challenge_error(exc: Exception) -> bool:
@@ -309,6 +333,129 @@ async def _report_offer(
         )
 
 
+async def _establish_initial_network(
+    context,
+    chat_id: int,
+    session: dict,
+    proxy_session_token: str,
+) -> tuple[str | None, bool]:
+    proxy_url = None
+    fast_start_visible_auth_proxy = False
+    if config.PROXY_ENABLED and not session.get("proxy_disabled"):
+        proxy_url = PROXY_MANAGER.get_proxy(preferred=session.get("proxy"))
+        if proxy_url:
+            session["proxy"] = proxy_url
+            fast_start_visible_auth_proxy = bool(
+                config.HEADLESS
+                and config.START_VISIBLE_WITH_AUTH_PROXY
+                and _proxy_has_auth(proxy_url)
+            )
+            if not fast_start_visible_auth_proxy:
+                identity = await _send_proxy_identity_panel(
+                    context,
+                    chat_id,
+                    proxy_url,
+                    tr(context, "proxy_panel_title"),
+                    proxy_session_token,
+                )
+                if identity:
+                    session["network_identity"] = identity
+                else:
+                    session.pop("network_identity", None)
+            else:
+                logger.info(
+                    "Skipping pre-launch proxy identity lookup for chat %s so Chrome can appear sooner on authenticated proxy startup.",
+                    chat_id,
+                )
+        else:
+            session.pop("proxy", None)
+            identity = await _send_proxy_identity_panel(
+                context,
+                chat_id,
+                None,
+                tr(context, "direct_panel_title"),
+                proxy_session_token,
+            )
+            if identity:
+                session["network_identity"] = identity
+            else:
+                session.pop("network_identity", None)
+    else:
+        session.pop("proxy", None)
+        identity = await _send_proxy_identity_panel(
+            context,
+            chat_id,
+            None,
+            tr(context, "direct_panel_title"),
+            proxy_session_token,
+        )
+        if identity:
+            session["network_identity"] = identity
+        else:
+            session.pop("network_identity", None)
+
+    return proxy_url, fast_start_visible_auth_proxy
+
+
+async def _rotate_to_next_proxy(
+    context,
+    chat_id: int,
+    session: dict,
+    current_proxy: str | None,
+    used_proxies: set[str],
+    proxy_session_token: str,
+    *,
+    mark_code: str,
+    rotate_message_key: str,
+) -> str | None:
+    PROXY_MANAGER.mark_failed(current_proxy, mark_code)
+    used_proxies.add(current_proxy)
+    next_proxy = PROXY_MANAGER.get_proxy(excluded=used_proxies)
+    if not next_proxy:
+        return None
+    session["proxy"] = next_proxy
+    await _safe_send_bot_message(
+        context,
+        chat_id=chat_id,
+        text=tr(context, rotate_message_key),
+    )
+    identity = await _send_proxy_identity_panel(
+        context,
+        chat_id,
+        next_proxy,
+        tr(context, "proxy_rotated_title"),
+        proxy_session_token,
+    )
+    if identity:
+        session["network_identity"] = identity
+    else:
+        session.pop("network_identity", None)
+    return next_proxy
+
+
+async def _scan_offer_and_maybe_dump(
+    driver,
+    *,
+    chat_id: int,
+    attempt: int,
+    max_offer_attempts: int,
+    device,
+) -> tuple[str | None, str | None, dict[str, str] | None]:
+    offer_link = await asyncio.to_thread(check_offer_with_driver, driver)
+    diagnostic = None
+    artifacts = None
+    if not offer_link and attempt == max_offer_attempts:
+        diagnostic = await asyncio.to_thread(diagnose_offer_page, driver)
+        artifacts = await asyncio.to_thread(
+            dump_offer_debug_artifacts,
+            driver,
+            chat_id,
+            attempt,
+            device.session_id,
+        )
+    return offer_link, diagnostic, artifacts
+
+
 async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Run Google One automation and report the result."""
     max_offer_attempts = 3
@@ -359,60 +506,12 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                 seed=f"{chat_id}{int(time.time())}",
             )
             used_proxies: set[str] = set()
-            proxy_url = None
-            fast_start_visible_auth_proxy = False
-            if config.PROXY_ENABLED and not session.get("proxy_disabled"):
-                proxy_url = PROXY_MANAGER.get_proxy(preferred=session.get("proxy"))
-                if proxy_url:
-                    session["proxy"] = proxy_url
-                    fast_start_visible_auth_proxy = bool(
-                        config.HEADLESS
-                        and config.START_VISIBLE_WITH_AUTH_PROXY
-                        and _proxy_has_auth(proxy_url)
-                    )
-                    if not fast_start_visible_auth_proxy:
-                        identity = await _send_proxy_identity_panel(
-                            context,
-                            chat_id,
-                            proxy_url,
-                            tr(context, "proxy_panel_title"),
-                            proxy_session_token,
-                        )
-                        if identity:
-                            session["network_identity"] = identity
-                        else:
-                            session.pop("network_identity", None)
-                    else:
-                        logger.info(
-                            "Skipping pre-launch proxy identity lookup for chat %s so Chrome can appear sooner on authenticated proxy startup.",
-                            chat_id,
-                        )
-                else:
-                    session.pop("proxy", None)
-                    identity = await _send_proxy_identity_panel(
-                        context,
-                        chat_id,
-                        None,
-                        tr(context, "direct_panel_title"),
-                        proxy_session_token,
-                    )
-                    if identity:
-                        session["network_identity"] = identity
-                    else:
-                        session.pop("network_identity", None)
-            else:
-                session.pop("proxy", None)
-                identity = await _send_proxy_identity_panel(
-                    context,
-                    chat_id,
-                    None,
-                    tr(context, "direct_panel_title"),
-                    proxy_session_token,
-                )
-                if identity:
-                    session["network_identity"] = identity
-                else:
-                    session.pop("network_identity", None)
+            proxy_url, fast_start_visible_auth_proxy = await _establish_initial_network(
+                context,
+                chat_id,
+                session,
+                proxy_session_token,
+            )
 
             for attempt in range(1, max_offer_attempts + 1):
                 device, fresh_device = _resolve_attempt_device(session, attempt)
@@ -464,28 +563,18 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                                 exc,
                             )
                             if attempt < max_offer_attempts and not _is_proxy_policy_error(exc):
-                                PROXY_MANAGER.mark_failed(proxy_url, "precheck_failed")
-                                used_proxies.add(proxy_url)
-                                next_proxy = PROXY_MANAGER.get_proxy(excluded=used_proxies)
+                                next_proxy = await _rotate_to_next_proxy(
+                                    context,
+                                    chat_id,
+                                    session,
+                                    proxy_url,
+                                    used_proxies,
+                                    proxy_session_token,
+                                    mark_code="precheck_failed",
+                                    rotate_message_key="offer_proxy_precheck_failed_rotate",
+                                )
                                 if next_proxy:
                                     proxy_url = next_proxy
-                                    session["proxy"] = proxy_url
-                                    await _safe_send_bot_message(
-                                        context,
-                                        chat_id=chat_id,
-                                        text=tr(context, "offer_proxy_precheck_failed_rotate"),
-                                    )
-                                    identity = await _send_proxy_identity_panel(
-                                        context,
-                                        chat_id,
-                                        proxy_url,
-                                        tr(context, "proxy_rotated_title"),
-                                        proxy_session_token,
-                                    )
-                                    if identity:
-                                        session["network_identity"] = identity
-                                    else:
-                                        session.pop("network_identity", None)
                                     continue
                             raise GoogleAutomationError(
                                 tr(
@@ -544,9 +633,17 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                         totp_secret = session.get("totp_secret")
                         if totp_secret:
                             try:
-                                import pyotp
-
-                                code = pyotp.TOTP(totp_secret).now()
+                                last_code = (
+                                    session.get("_last_totp_code")
+                                    if attempt > 1
+                                    else None
+                                )
+                                code = await asyncio.to_thread(
+                                    _generate_unused_totp_code,
+                                    totp_secret,
+                                    last_code,
+                                )
+                                session["_last_totp_code"] = code
                                 logger.info(
                                     "Auto-generated TOTP code for chat %s (attempt %d)",
                                     chat_id,
@@ -554,10 +651,57 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                                 )
                                 accepted = await asyncio.to_thread(submit_2fa_code, driver, code)
                                 if not accepted:
+                                    reject_url = ""
+                                    reject_reason = ""
+                                    try:
+                                        reject_url = await asyncio.to_thread(
+                                            lambda: driver.current_url or ""
+                                        )
+                                    except Exception:
+                                        reject_url = ""
+                                    try:
+                                        reject_reason = (
+                                            await asyncio.to_thread(
+                                                get_signin_error_text, driver
+                                            )
+                                            or ""
+                                        )
+                                    except Exception:
+                                        reject_reason = ""
+                                    totp_artifacts = await asyncio.to_thread(
+                                        dump_offer_debug_artifacts,
+                                        driver,
+                                        chat_id,
+                                        attempt,
+                                        device.session_id,
+                                    )
+                                    logger.warning(
+                                        "Auto-TOTP rejected for chat %s (attempt %d). url=%s reason=%s",
+                                        chat_id,
+                                        attempt,
+                                        reject_url or "<none>",
+                                        reject_reason or "<none>",
+                                    )
                                     close_driver(driver)
                                     driver = None
+                                    reject_text = tr(context, "offer_auto_totp_rejected")
+                                    if reject_reason:
+                                        reject_text += "\n\n" + tr(
+                                            context,
+                                            "offer_totp_debug_reason",
+                                            reason=reject_reason,
+                                        )
+                                    if reject_url:
+                                        reject_text += "\n" + tr(
+                                            context,
+                                            "offer_totp_debug_url",
+                                            url=reject_url,
+                                        )
+                                    reject_text += _format_artifact_note(
+                                        context, totp_artifacts
+                                    )
                                     await message.reply_text(
-                                        tr(context, "offer_auto_totp_rejected"),
+                                        reject_text,
                                         reply_markup=main_menu_keyboard(context),
                                     )
                                     return ConversationHandler.END
@@ -570,19 +714,17 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                                         max_attempts=max_offer_attempts,
                                     )
                                 )
-                                offer_link = await asyncio.to_thread(check_offer_with_driver, driver)
-                                if not offer_link and attempt == max_offer_attempts:
-                                    no_offer_diagnostic = await asyncio.to_thread(
-                                        diagnose_offer_page,
-                                        driver,
-                                    )
-                                    no_offer_artifacts = await asyncio.to_thread(
-                                        dump_offer_debug_artifacts,
-                                        driver,
-                                        chat_id,
-                                        attempt,
-                                        device.session_id,
-                                    )
+                                (
+                                    offer_link,
+                                    no_offer_diagnostic,
+                                    no_offer_artifacts,
+                                ) = await _scan_offer_and_maybe_dump(
+                                    driver,
+                                    chat_id=chat_id,
+                                    attempt=attempt,
+                                    max_offer_attempts=max_offer_attempts,
+                                    device=device,
+                                )
                             except Exception as exc:
                                 logger.warning("Auto-TOTP failed: %s", exc)
                                 close_driver(driver)
@@ -631,19 +773,17 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                                 max_attempts=max_offer_attempts,
                             )
                         )
-                        offer_link = await asyncio.to_thread(check_offer_with_driver, driver)
-                        if not offer_link and attempt == max_offer_attempts:
-                            no_offer_diagnostic = await asyncio.to_thread(
-                                diagnose_offer_page,
-                                driver,
-                            )
-                            no_offer_artifacts = await asyncio.to_thread(
-                                dump_offer_debug_artifacts,
-                                driver,
-                                chat_id,
-                                attempt,
-                                device.session_id,
-                            )
+                        (
+                            offer_link,
+                            no_offer_diagnostic,
+                            no_offer_artifacts,
+                        ) = await _scan_offer_and_maybe_dump(
+                            driver,
+                            chat_id=chat_id,
+                            attempt=attempt,
+                            max_offer_attempts=max_offer_attempts,
+                            device=device,
+                        )
                 except GoogleAutomationError as exc:
                     if (
                         proxy_url
@@ -651,28 +791,18 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                         and not _is_proxy_policy_error(exc)
                         and attempt < max_offer_attempts
                     ):
-                        PROXY_MANAGER.mark_failed(proxy_url, "automation_error")
-                        used_proxies.add(proxy_url)
-                        next_proxy = PROXY_MANAGER.get_proxy(excluded=used_proxies)
+                        next_proxy = await _rotate_to_next_proxy(
+                            context,
+                            chat_id,
+                            session,
+                            proxy_url,
+                            used_proxies,
+                            proxy_session_token,
+                            mark_code="automation_error",
+                            rotate_message_key="offer_proxy_transport_rotating",
+                        )
                         if next_proxy:
                             proxy_url = next_proxy
-                            session["proxy"] = proxy_url
-                            await _safe_send_bot_message(
-                                context,
-                                chat_id=chat_id,
-                                text=tr(context, "offer_proxy_transport_rotating"),
-                            )
-                            identity = await _send_proxy_identity_panel(
-                                context,
-                                chat_id,
-                                proxy_url,
-                                tr(context, "proxy_rotated_title"),
-                                proxy_session_token,
-                            )
-                            if identity:
-                                session["network_identity"] = identity
-                            else:
-                                session.pop("network_identity", None)
                             continue
                     raise
                 except Exception as exc:
@@ -682,28 +812,18 @@ async def check_offer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
                         and not _is_proxy_policy_error(exc)
                         and attempt < max_offer_attempts
                     ):
-                        PROXY_MANAGER.mark_failed(proxy_url, "runtime_error")
-                        used_proxies.add(proxy_url)
-                        next_proxy = PROXY_MANAGER.get_proxy(excluded=used_proxies)
+                        next_proxy = await _rotate_to_next_proxy(
+                            context,
+                            chat_id,
+                            session,
+                            proxy_url,
+                            used_proxies,
+                            proxy_session_token,
+                            mark_code="runtime_error",
+                            rotate_message_key="offer_runtime_network_rotating",
+                        )
                         if next_proxy:
                             proxy_url = next_proxy
-                            session["proxy"] = proxy_url
-                            await _safe_send_bot_message(
-                                context,
-                                chat_id=chat_id,
-                                text=tr(context, "offer_runtime_network_rotating"),
-                            )
-                            identity = await _send_proxy_identity_panel(
-                                context,
-                                chat_id,
-                                proxy_url,
-                                tr(context, "proxy_rotated_title"),
-                                proxy_session_token,
-                            )
-                            if identity:
-                                session["network_identity"] = identity
-                            else:
-                                session.pop("network_identity", None)
                             continue
                     raise
                 finally:
@@ -800,8 +920,8 @@ async def handle_2fa_code(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     try:
         await update.message.delete()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to delete 2fa code message: %s", exc)
 
     driver = session.pop("_driver", None)
     if not driver:
@@ -913,8 +1033,8 @@ async def handle_manual_verification(
 
     try:
         await update.message.delete()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to delete manual verification message: %s", exc)
 
     driver = session.pop("_driver", None)
     challenge_type = session.get("_manual_challenge_type", "manual verification")

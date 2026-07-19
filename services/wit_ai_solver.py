@@ -528,8 +528,8 @@ def _switch_to_frame_path(driver, frame_path: tuple[int, ...]) -> None:
 def _restore_default_content(driver) -> None:
     try:
         driver.switch_to.default_content()
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.debug("failed to restore default browser content: %s", exc)
 
 
 def _build_context(
@@ -714,8 +714,8 @@ def _parse_wit_ai_response_payload(raw_body: str = "") -> Any:
                     fragment = raw_body[start_index : index + 1]
                     try:
                         parsed_items.append(json.loads(fragment))
-                    except json.JSONDecodeError:
-                        pass
+                    except json.JSONDecodeError as exc:
+                        logger.debug("failed to parse wit.ai json fragment: %s", exc)
                     start_index = -1
 
         return parsed_items or None

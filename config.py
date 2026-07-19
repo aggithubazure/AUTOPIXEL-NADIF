@@ -253,7 +253,24 @@ def _detect_chrome_version() -> tuple[str, int]:
                 pass
     return "124.0.6367.82", 124
 
-CHROME_VERSION, CHROME_MAJOR_VERSION = _detect_chrome_version()
+
+_detected_chrome: tuple[str, int] | None = None
+
+
+def _get_chrome_version() -> tuple[str, int]:
+    """Return cached Chrome version information, detecting it on first use."""
+    global _detected_chrome
+    if _detected_chrome is None:
+        _detected_chrome = _detect_chrome_version()
+    return _detected_chrome
+
+
+def __getattr__(name: str):
+    if name == "CHROME_VERSION":
+        return _get_chrome_version()[0]
+    if name == "CHROME_MAJOR_VERSION":
+        return _get_chrome_version()[1]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 # Pool of realistic Pixel 10 Pro user-agent strings.
 # Keep these browser-consistent; avoid WebView-only markers unless the
@@ -275,6 +292,7 @@ USER_AGENT_TEMPLATES = [
 GMAIL_LOGIN_URL = "https://accounts.google.com/signin/v2/identifier"
 GOOGLE_ONE_URL = "https://one.google.com/"
 GOOGLE_ONE_OFFERS_URL = "https://one.google.com/about/plans"
+GOOGLE_ONE_BENEFITS_URL = "https://one.google.com/benefits"
 
 # ── Gemini offer detection keywords ──────────────────────────────────────────
 GEMINI_OFFER_KEYWORDS = [
@@ -327,6 +345,17 @@ PROXY_PRECHECK_ENABLED = _env_flag("PROXY_PRECHECK_ENABLED", "1")
 PROXY_PRECHECK_TIMEOUT_SECONDS = _env_int("PROXY_PRECHECK_TIMEOUT_SECONDS", 12)
 PROXY_DIAGNOSTICS_VERIFY_SSL = _env_flag("PROXY_DIAGNOSTICS_VERIFY_SSL", "0")
 REGENERATE_DEVICE_ON_RETRY = _env_flag("REGENERATE_DEVICE_ON_RETRY", "1")
+
+# ── Persistent Chrome profile (reuse Google cookies across retries/restarts) ──
+# When enabled, each account gets a private on-disk Chrome user-data-dir so a
+# successful login is reused on later retries instead of re-authenticating.
+# Re-authenticating on every retry is what repeatedly triggered Google's 2FA
+# method chooser and TOTP prompts, so reusing the saved session avoids that.
+PERSIST_CHROME_PROFILE = _env_flag("PERSIST_CHROME_PROFILE", "1")
+CHROME_PROFILE_DIR = _env_text(
+    "CHROME_PROFILE_DIR",
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "chrome_profiles"),
+)
 
 # ── Email validation ──────────────────────────────────────────────────────────
 # Leave empty to accept any valid email domain (Gmail + Google Workspace).
